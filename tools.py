@@ -52,3 +52,12 @@ def tile_surface(size, tile):
         for j in range(0, tile_size[1]+size[1], tile_size[1]):
             surface.blit(tile, (i,j))
     return surface
+
+
+def collide_other(one, two):
+    """
+    A collidable callback for use with the pygame sprite collision functions.
+    Allows a sprite to use an attribute hit_rect instead of rect for
+    collision.
+    """
+    return one.hit_rect.colliderect(two.rect)

@@ -9,7 +9,7 @@ import prepare
 import actors
         
 
-MAX_NPCS = 7
+MAX_NPCS = 15
 
             
 class App(object):
@@ -41,7 +41,9 @@ class App(object):
                        random.randint(size, height-size*2)]
                 speed = random.randint(1,2)
                 way = random.choice(prepare.DIRECTIONS)
-                actors.AISprite(pos, speed, name, way, self.all_sprites, npcs)
+                npc = actors.AISprite(pos, speed, name, way)
+                if not pg.sprite.spritecollideany(npc, self.obstacles):
+                    npc.add(self.all_sprites, npcs)
         return npcs
 
     def make_obstacles(self):
@@ -90,7 +92,7 @@ class App(object):
     def update(self):
         """Update all actors."""
         now = pg.time.get_ticks()
-        self.all_sprites.update(now, self.screen_rect)
+        self.all_sprites.update(now, self.screen_rect, self.obstacles)
         for sprite in self.all_sprites:
             layer = self.all_sprites.get_layer_of_sprite(sprite)
             if layer != sprite.rect.bottom:

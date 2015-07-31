@@ -25,6 +25,8 @@ class RPGSprite(pg.sprite.DirtySprite):
         self.walkframe_dict = self.make_frame_dict(self.get_frames(name))
         self.adjust_images()
         self.rect = self.image.get_rect(center=pos)
+        self.hit_rect = pg.Rect(0, 0, 20, 20)
+        self.hit_rect.midbottom = self.rect.midbottom
         self.dirty = 1
 
     def get_frames(self, character):
@@ -41,7 +43,7 @@ class RPGSprite(pg.sprite.DirtySprite):
         return frame_dict
 
     def adjust_images(self, now=0):
-        """Update the sprite's walkframes as the sprite's direction changes."""
+        """Update the sprites walkframes as the sprite's direction changes."""
         if self.direction != self.old_direction:
             self.walkframes = self.walkframe_dict[self.direction]
             self.old_direction = self.direction
@@ -76,15 +78,56 @@ class RPGSprite(pg.sprite.DirtySprite):
         if self.direction_stack:
             self.direction = self.direction_stack[-1]
 
-    def update(self, now, screen_rect):
+    def update(self, now, screen_rect, obstacles):
         """Update image and position of sprite."""
         self.adjust_images(now)
+        adjust_x = adjust_y = False
         if self.direction_stack:
-            direction_vector = prepare.DIRECT_DICT[self.direction]
-            self.rect.x += self.speed*direction_vector[0]
-            self.rect.y += self.speed*direction_vector[1]
             self.dirty = 1
+            adjust_x = self.movement(obstacles, 0)
+            adjust_y = self.movement(obstacles, 1)
+            self.wrap_around(screen_rect)
+        return adjust_x or adjust_y
 
+    def wrap_around(self, screen_rect):
+        """
+        If the sprite leaves the screen, wrap it over to the opposite side
+        of the map.
+        """
+        buffer = 10
+        if self.rect.x+buffer >= screen_rect.right:
+            self.rect.right = buffer
+        elif self.rect.right-buffer <= screen_rect.x:
+            self.rect.x = screen_rect.right-buffer
+        if self.rect.y+buffer >= screen_rect.bottom:
+            self.rect.bottom = buffer
+        elif self.rect.bottom-buffer <= screen_rect.y:
+            self.rect.y = screen_rect.bottom-buffer
+        self.hit_rect.midbottom = self.rect.midbottom
+
+    def movement(self, obstacles, i):
+        """Move sprite and then check for collisions; adjust as necessary."""
+        adjust = False
+        direction_vector = prepare.DIRECT_DICT[self.direction]
+        self.rect[i] += self.speed*direction_vector[i]
+        self.hit_rect.midbottom = self.rect.midbottom
+        collision = pg.sprite.spritecollideany(self, obstacles, 
+                                               collided=tools.collide_other)
+        while collision:
+            adjust = True
+            self.adjust_on_collision(self.hit_rect, collision, i)
+            self.rect.midbottom = self.hit_rect.midbottom
+            collision = pg.sprite.spritecollideany(self, obstacles, 
+                                                  collided=tools.collide_other)
+        return adjust
+
+    def adjust_on_collision(self, rect_to_adjust, collide, i):
+        """Adjust sprite's position if colliding with a solid block."""
+        if rect_to_adjust[i] < collide.rect[i]:
+            rect_to_adjust[i] = collide.rect[i]-rect_to_adjust.size[i]
+        else:
+            rect_to_adjust[i] = collide.rect[i]+collide.rect.size[i]
+            
     def draw(self, surface):
         """Draw sprite to surface (not used if using group draw functions)."""
         surface.blit(self.image, self.rect)
@@ -101,11 +144,6 @@ class Player(RPGSprite):
             self.add_direction(event.key)
         elif event.type == pg.KEYUP:
             self.pop_direction(event.key)
-
-    def update(self, now, screen_rect):
-        """Call base classes update method and clamp player to screen."""
-        super(Player, self).update(now, screen_rect)
-        self.rect.clamp_ip(screen_rect)
 
     def add_direction(self, key):
         """Remove direction from stack if corresponding key is released."""
@@ -127,22 +165,21 @@ class AISprite(RPGSprite):
         self.wait_time = 0.0
         self.change_direction()
 
-    def update(self, now, screen_rect):
+    def update(self, now, screen_rect, obstacles):
         """
         Choose a new direction if wait_time has expired or the sprite
-        attempts to leave the screen.
+        has collided with a solid tile.
         """
         if now-self.wait_time > self.wait_delay:
             self.change_direction(now)
-        super(AISprite, self).update(now, screen_rect)
-        if not screen_rect.contains(self.rect):
+        collided = super(AISprite, self).update(now, screen_rect, obstacles)
+        if collided:
             self.change_direction(now)
-            self.rect.clamp_ip(screen_rect)
 
     def change_direction(self, now=0):
         """
         Empty the stack and choose a new direction.  The sprite may also
-        choose not to go idle (choosing direction=None)
+        choose to go idle (choosing direction=None)
         """
         self.direction_stack = []
         direction = random.choice(prepare.DIRECTIONS+(None,))
